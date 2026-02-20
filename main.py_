@@ -1,0 +1,105 @@
+import os
+import streamlit as st
+import pandas as pd
+from register import register_student, ensure_paths
+from attendance import mark_checkin, mark_checkout, ensure_files
+
+st.set_page_config(page_title="Face Detection Attendance", page_icon="🎓", layout="centered")
+
+ensure_paths()
+ensure_files()
+
+if "reg_images" not in st.session_state:
+    st.session_state.reg_images = []
+
+tabs = st.tabs(["Student Registration", "Attendance Mark", "Attendance Records"])
+
+with tabs[0]:
+    st.header("Student Registration")
+    name = st.text_input("Full Name")
+    roll = st.text_input("Roll Number")
+    email = st.text_input("Gmail ID")
+    method_reg = st.radio("Capture Method", ["Camera", "Upload"], horizontal=True, key="reg_method")
+    captured = None
+    uploaded = None
+    if method_reg == "Camera":
+        captured = st.camera_input("Capture Face", key="reg_cam")
+        st.caption("If camera access is blocked, allow it in your browser or switch to Upload.")
+    else:
+        uploaded = st.file_uploader("Upload Face Image", type=["jpg", "jpeg", "png"], key="reg_up")
+    col1, col2 = st.columns(2)
+    add_clicked = col1.button("Add Photo")
+    clear_clicked = col2.button("Clear Photos")
+    if add_clicked:
+        if method_reg == "Camera" and captured is not None:
+            st.session_state.reg_images.append(captured.getvalue())
+        elif method_reg == "Upload" and uploaded is not None:
+            st.session_state.reg_images.append(uploaded.read())
+    if clear_clicked:
+        st.session_state.reg_images = []
+    st.write(f"Photos captured: {len(st.session_state.reg_images)}")
+    register_clicked = st.button("Register Student")
+    if register_clicked:
+        if not name or not roll or not email:
+            st.error("Enter all details")
+        elif not st.session_state.reg_images:
+            st.error("Capture at least one photo")
+        else:
+            ok = register_student(name, roll, email, st.session_state.reg_images)
+            if ok:
+                st.success("Student registered and biometrics saved")
+                st.session_state.reg_images = []
+            else:
+                st.error("No face detected in captured photos")
+
+with tabs[1]:
+    st.header("Attendance Mark")
+    action = st.radio("Select", ["Check-In", "Check-Out"], horizontal=True)
+    method_att = st.radio("Capture Method", ["Camera", "Upload"], horizontal=True, key="att_method")
+    frame = None
+    frame_up = None
+    if method_att == "Camera":
+        frame = st.camera_input("Capture Face", key="att_cam")
+        st.caption("If camera access is blocked, allow it in your browser or switch to Upload.")
+    else:
+        frame_up = st.file_uploader("Upload Face Image", type=["jpg", "jpeg", "png"], key="att_up")
+    mark_clicked = st.button("Mark Attendance")
+    if mark_clicked:
+        b = None
+        if method_att == "Camera" and frame is not None:
+            b = frame.getvalue()
+        elif method_att == "Upload" and frame_up is not None:
+            b = frame_up.read()
+        if b is None:
+            st.error("Provide a face photo via Camera or Upload")
+        else:
+            if action == "Check-In":
+                ok, msg = mark_checkin(b)
+            else:
+                ok, msg = mark_checkout(b)
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+with tabs[2]:
+    st.header("Attendance Records")
+    checkin_path = os.path.join(os.getcwd(), "attendance_checkin.csv")
+    checkout_path = os.path.join(os.getcwd(), "attendance_checkout.csv")
+    colA, colB = st.columns(2)
+    with colA:
+        st.subheader("Check-In")
+        if os.path.exists(checkin_path):
+            df_in = pd.read_csv(checkin_path)
+            st.dataframe(df_in, use_container_width=True)
+            st.download_button("Download Check-In CSV", data=df_in.to_csv(index=False), file_name="attendance_checkin.csv", mime="text/csv")
+        else:
+            st.info("No check-in records yet")
+    with colB:
+        st.subheader("Check-Out")
+        if os.path.exists(checkout_path):
+            df_out = pd.read_csv(checkout_path)
+            st.dataframe(df_out, use_container_width=True)
+            st.download_button("Download Check-Out CSV", data=df_out.to_csv(index=False), file_name="attendance_checkout.csv", mime="text/csv")
+        else:
+            st.info("No check-out records yet")
